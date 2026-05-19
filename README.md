@@ -26,19 +26,33 @@ Le système calcule un **score de risque continu**, mis à jour toutes les 30 mi
 
 ## 2. Problème Mathématique
 Le problème est formulé comme un système sur-déterminé :
-$$ A \in \mathbb{R}^{m \times n}, \quad m \gg n $$
+$$
+A \in \mathbb{R}^{m \times n}, \quad m \gg n
+$$
 Où :
 - $m$ = nombre de mesures temporelles
 - $n$ = nombre de variables cliniques
 
 **Vecteur des variables cliniques ($x$) :**
-$$ x = \begin{bmatrix} SpO_2 \\ FC \\ Température \\ Pression \\ Lactate \end{bmatrix} $$
+$$
+x = \begin{bmatrix} 
+\text{SpO}_2 \\ 
+\text{FC} \\ 
+\text{Température} \\ 
+\text{Pression} \\ 
+\text{Lactate} 
+\end{bmatrix}
+$$
 
 **Cible ($b$) :**
-$b = \text{Score SOFA (Sepsis-related Organ Failure Assessment)}$
+$$
+b = \text{Score SOFA (Sepsis-related Organ Failure Assessment)}
+$$
 
 **Objectif d'optimisation :**
-$$ \min \|Ax - b\|_2^2 $$
+$$
+\min \|Ax - b\|_2^2
+$$
 
 ---
 
@@ -53,32 +67,44 @@ La méthode des moindres carrés permet :
 3. De produire un score de risque robuste.
 
 Le résidu à minimiser est :
-$$ r = Ax - b $$
+$$
+r = Ax - b
+$$
 
 ---
 
 ## 4. Problème des Équations Normales
 L'approche classique par les équations normales est :
-$$ A^T A x = A^T b $$
+$$
+A^T A x = A^T b
+$$
 Bien que rapide, elle est **instable numériquement**.
 
 En effet, le conditionnement de la matrice au carré amplifie les erreurs :
-$$ \kappa(A^T A) = \kappa(A)^2 $$
+$$
+\kappa(A^T A) = \kappa(A)^2
+$$
 Si $\kappa(A) = 1000$, alors $\kappa(A^T A) = 10^6$. Le système devient très mal conditionné, conduisant à des prédictions aberrantes.
 
 ---
 
 ## 5. Solution : Factorisation QR par Réflexion de Householder
 Pour éviter l'instabilité, on factorise $A$ :
-$$ A = QR $$
+$$
+A = QR
+$$
 Avec :
 - $Q^T Q = I$ (matrice orthogonale)
 - $R$ : matrice triangulaire supérieure
 
 **Réflexion de Householder :**
-$$ H = I - \frac{2}{v^T v} v v^T $$
-Où :
-$$ v = x \pm \|x\|_2 e_1 $$
+$$
+H = I - 2 v v^T
+$$
+Où $v$ est le vecteur de Householder unitaire défini par :
+$$
+u = x \pm \|x\|_2 e_1, \quad v = \frac{u}{\|u\|_2}
+$$
 
 Cette méthode :
 - Annule de façon itérative les coefficients sous la diagonale,
@@ -89,48 +115,72 @@ Cette méthode :
 
 ## 6. Résolution du Système
 Après la factorisation QR, le système devient :
-$$ Rx = Q^T b $$
+$$
+Rx = Q^T b
+$$
 Comme $R$ est triangulaire supérieure, on utilise la **substitution arrière**. Cette opération présente une complexité algorithmique très faible tout en conservant une excellente stabilité.
 
 ---
 
 ## 7. Cholesky pour l’Accélération
-Pour certaines opérations impliquant des matrices Symétriques Définies Positives (SPD) :
-$$ A^T A = H^T H $$
-Où $H$ est triangulaire supérieure.
-$$ h_{11} = \sqrt{(A^T A)_{11}} $$
-Résolution en deux étapes : $H^T y = A^T b$ puis $H x = y$.
+Pour certaines opérations impliquant des matrices Symétriques Définies Positives (SPD) comme la covariance $\Sigma$ :
+$$
+\Sigma = L L^T
+$$
+Où $L$ est une matrice triangulaire inférieure.
+
+Les éléments sur la diagonale de $L$ sont calculés comme suit :
+$$
+L_{ii} = \sqrt{\Sigma_{ii} - \sum_{k=1}^{i-1} L_{ik}^2}
+$$
+Et les éléments hors-diagonale ($i > j$) :
+$$
+L_{ij} = \frac{1}{L_{jj}} \left( \Sigma_{ij} - \sum_{k=1}^{j-1} L_{ik} L_{jk} \right)
+$$
+
+**Résolution du système associé :**
+Pour résoudre $\Sigma x = b$, on effectue une résolution en deux étapes :
+1. **Descente triangulaire (Forward Substitution) :** résoudre $L y = b$
+2. **Remontée triangulaire (Backward Substitution) :** résoudre $L^T x = y$
 
 **Avantages :**
 - Très rapide,
 - Empreinte mémoire réduite,
-- Idéal pour le calcul de la matrice de covariance et des distances de Mahalanobis.
+- Idéal pour le calcul de la covariance et des distances de Mahalanobis.
 
 ---
 
 ## 8. Détection d’Anomalies : Distance de Mahalanobis
 Le patient est comparé en temps réel à une population ICU stable.
-Le score d'anomalie :
-$$ d^2(x) = (x - \mu)^T \Sigma^{-1} (x - \mu) $$
+Le score d'anomalie est la distance de Mahalanobis au carré :
+$$
+d^2(x) = (x - \mu)^T \Sigma^{-1} (x - \mu)
+$$
 Cette distance permet :
 - Une détection multivariée,
 - La prise en compte des corrélations physiologiques,
 - Une alerte bien avant le franchissement des seuils uni-variables classiques.
 
 **Déclenchement de l'alerte :**
-On lève une alerte si $d^2(x) > \chi^2(p, 0.99)$ (où $\Sigma^{-1}$ est calculé via Cholesky).
+On lève une alerte si $d^2(x) > \chi^2(p, 0.99)$ (où $\Sigma^{-1}$ est calculé efficacement via la décomposition de Cholesky $\Sigma = L L^T$).
 
 ---
 
 ## 9. Linéarisation du Modèle de Risque Exponentiel
 Le risque clinique (dégradation) suit souvent une loi exponentielle ou de puissance :
-$$ \text{Risque} = a e^{bx} $$
+$$
+\text{Risque} = a e^{b x}
+$$
 
 Par transformation logarithmique, on obtient :
-$$ \ln(\text{Risque}) = \ln(a) + bx $$
+$$
+\ln(\text{Risque}) = \ln(a) + b x
+$$
 
 Le problème devient strictement linéaire :
-$$ Y = A + Bx $$
+$$
+Y = A + B x
+$$
 *(Alternative power law : $\ln(y) = \ln(a) + b \ln(x)$)*
 
 **Bénéfices :**
@@ -179,25 +229,25 @@ flowchart TD
 
 ## 12. Algorithme Global Pas-à-Pas
 
-1. **Construction des Features :** Construire $A \in \mathbb{R}^{m \times n}$ avec $m$ mesures du patient et les $n$ features (SpO₂, FC, Température, Pression, Lactate). Définir $b$ comme le score de gravité (SOFA).
-2. **Vérification du Conditionnement :** Calculer $\kappa(A)$. Si $\kappa(A) \gg 1000$, les équations normales échoueront. On bascule sur QR Householder.
+1. **Construction des Features :** Construire $A \in \mathbb{R}^{m \times n}$ avec $m$ mesures du patient et les $n$ variables cliniques (SpO₂, FC, Température, Pression, Lactate). Définir $b$ comme le score de gravité (SOFA).
+2. **Vérification du Conditionnement :** Calculer $\kappa(A)$. Si $\kappa(A) \gg 1000$, les équations normales risquent de faillir. On applique la factorisation QR Householder.
 3. **Factorisation QR :**
-   - $v = \text{col}_1 \pm \|\text{col}_1\|_2 e_1$
-   - Construire $H = I - 2 \frac{v v^T}{v^T v}$
-   - Appliquer successivement $H$ sur $A$ pour créer les zéros sous la diagonale.
-4. **Résolution :** Résoudre $Rx = Q^T b$ par substitution arrière ($x_n = b_n / u_{nn}$, et remonter jusqu'à $x_1$).
-5. **Modèle de Risque :** Résoudre le système linéaire du risque exponentiel $\ln(\text{Risque}) = \ln(a) + bx$ pour trouver $a$ et $b$ ($\rightarrow$ `model.predict()`).
-6. **Détection d’Anomalie :** Calculer la matrice de covariance $\Sigma$ sur des patients stables, l'inverser via Cholesky, et scorer chaque nouveau patient avec la distance de Mahalanobis.
+   - Pour chaque colonne $i$ de la matrice, définir le vecteur de Householder :
+     $$ u = x \pm \|x\|_2 e_1, \quad v = \frac{u}{\|u\|_2} $$
+   - Appliquer la réflexion $H = I - 2 v v^T$ à la matrice pour annuler les coefficients sous la diagonale.
+4. **Résolution :** Résoudre $R x = Q^T b$ par substitution arrière ($x_i$ est calculé en remontant de $x_n$ à $x_1$).
+5. **Modèle de Risque :** Résoudre le système linéaire du modèle de risque exponentiel $\ln(\text{Risque}) = \ln(a) + b x$ pour identifier les paramètres $a$ et $b$.
+6. **Détection d’Anomalie :** Calculer la matrice de covariance $\Sigma$ sur les patients stables, décomposer $\Sigma = L L^T$ via Cholesky, calculer $\Sigma^{-1} = (L^{-1})^T L^{-1}$ et évaluer la distance de Mahalanobis $d^2(x)$ de chaque nouveau patient.
 
 ---
 
 ## 13. Validation Mathématique
-Le système vérifie rigoureusement les propriétés suivantes :
-- $Q^T Q = I$ (Orthogonalité parfaite)
-- $H^T H = A^T A$
-- $Rx = Q^T b$
-- Conditionnement amélioré : $\kappa(QR) < \kappa(\text{Équations Normales})$
-- Optimisation : $\|Ax - b\|_2$ est strictement minimal.
+Le système vérifie rigoureusement les propriétés mathématiques suivantes :
+- **Orthogonalité de $Q$ :** $Q^T Q = I$ (conservation des longueurs et des angles)
+- **Conservation du produit matriciel (QR) :** $R^T R = A^T A$ (permet de s'assurer de l'équivalence avec les équations normales sans en subir l'instabilité numérique)
+- **Stabilité de substitution :** $R x = Q^T b$
+- **Conditionnement amélioré :** $\kappa(R) = \kappa(A) < \kappa(A^T A)$
+- **Minimisation globale :** $\|A x - b\|_2$ est minimal au sens des moindres carrés.
 
 ---
 
